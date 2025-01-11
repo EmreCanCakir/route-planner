@@ -1,3 +1,4 @@
+using Map.Core.Cache;
 using Map.Models;
 using Map.Services;
 using Neo4j.Driver;
@@ -9,12 +10,20 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddScoped<MapService>();
 builder.Services.AddScoped<RouteOptimizationService>();
 builder.Services.AddScoped<VrpGlobalSpan>();
+builder.Services.AddScoped<ICacheService, CacheService>();
 
 builder.Services.AddSingleton<IDriver>(sp =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
     return GraphDatabase.Driver(config["GraphDatabase:Url"], 
         AuthTokens.Basic(config["GraphDatabase:Username"], config["GraphDatabase:Password"]));
+});
+
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    var connectionString = $"{builder.Configuration["Redis:Configuration"]},password={builder.Configuration["Redis:Password"]}";
+    options.Configuration = connectionString;
+    options.InstanceName = builder.Configuration["Redis:InstanceName"];
 });
 
 builder.Services.AddOpenApi();
