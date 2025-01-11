@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿using Map.Core.Cache;
+using System.Globalization;
 
 namespace Map.Services
 {
@@ -6,11 +7,12 @@ namespace Map.Services
     {
         private readonly HttpClient _httpClient;
         private readonly string _apiKey;
-
-        public DistanceMatrixService(HttpClient httpClient, IConfiguration configuration)
+        private readonly ICacheService _cacheService;
+        public DistanceMatrixService(HttpClient httpClient, IConfiguration configuration, ICacheService cacheService)
         {
             _httpClient = httpClient;
             _apiKey = configuration["GoogleApiKey"]!;
+            _cacheService = cacheService;
         }
 
         public async Task<DistanceMatrixResult> GetDistanceMatrixAsync(List<Coordinate> coordinates)
@@ -57,15 +59,14 @@ namespace Map.Services
             string originString = string.Join("|", origins.Select(c => $"{c.Latitude.ToString(CultureInfo.InvariantCulture)},{c.Longitude.ToString(CultureInfo.InvariantCulture)}"));
             string destinationString = string.Join("|", destinations.Select(c => $"{c.Latitude.ToString(CultureInfo.InvariantCulture)},{c.Longitude.ToString(CultureInfo.InvariantCulture)}"));
 
+            await _cacheService.SetAsync("test", "Test Data");
+            var test = await _cacheService.GetAsync<string>("test");
             // 2. Google Distance Matrix API URL
             string url = $"https://maps.googleapis.com/maps/api/distancematrix/json?" +
                          $"origins={originString}&destinations={destinationString}&key={_apiKey}";
 
             // 3. API'ye çağrı yap
-            var response = await _httpClient.GetFromJsonAsync<DistanceMatrixApiResponse>(url);
-
-            if (response == null || response.Rows == null)
-                throw new Exception("Google Distance Matrix API'den sonuç alınamadı.");
+            var response = await FetchDistanceMatrixDataAsync(url, _apiKey);
 
             // 4. Sonuçları matris formatına dönüştür
             var distances = new List<List<int>>();
@@ -82,6 +83,25 @@ namespace Map.Services
                 Distances = distances,
                 Durations = durations
             };
+        }
+
+        private async Task<DistanceMatrixApiResponse> FetchDistanceMatrixDataAsync(string url, string apiKey)
+        {
+            if (await _cacheService.GetAsync<DistanceMatrixApiResponse>(url) is DistanceMatrixApiResponse cachedResponse)
+            {
+                return cachedResponse;
+            }
+
+            var response = await _httpClient.GetFromJsonAsync<DistanceMatrixApiResponse>(url + "&key={_apiKey}");
+
+            if (response == null || response.Rows == null)
+            {
+                throw new Exception("Google Distance Matrix API'den sonuç alınamadı.");
+            }
+
+            await _cacheService.SetAsync(url, response);
+
+            return response;
         }
 
         private List<List<int>> ConvertToNestedList(int[,] array)
